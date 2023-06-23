@@ -8,9 +8,13 @@
 import React, {useEffect, useState} from 'react';
 import axios, {AxiosResponse} from 'axios';
 import type {PropsWithChildren} from 'react';
+import {NavigationAction, NavigationContainer} from '@react-navigation/native';
+import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {
   ActivityIndicator,
+  Button,
   FlatList,
+  Pressable,
   SafeAreaView,
   ScrollView,
   SectionList,
@@ -29,44 +33,24 @@ import {
   ReloadInstructions,
 } from 'react-native/Libraries/NewAppScreen';
 
-type SectionProps = PropsWithChildren<{
-  title: string;
-}>;
-
-function Section({children, title}: SectionProps): JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
-  return (
-    <View style={styles.sectionContainer}>
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: isDarkMode ? Colors.white : Colors.black,
-          },
-        ]}>
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.sectionDescription,
-          {
-            color: isDarkMode ? Colors.light : Colors.dark,
-          },
-        ]}>
-        {children}
-      </Text>
-    </View>
-  );
-}
-type PokemonItemAPI = {name: string; url: string};
+type PokemonItemAPI = {name: string; url: string; profile: Function};
 type ResponsePage = {
   next: string;
   previous: string;
   offset: number;
   limit: number;
 };
+type Stat = {name: string; base_value: number};
+type PokemonProfile = {
+  name: string;
+  base_experience: number;
+  height: number;
+  stats: Array<Stat>;
+};
 
+const Separator = () => <View style={styles.divider}></View>;
 function App(): JSX.Element {
+  const Stack = createNativeStackNavigator();
   const isDarkMode = useColorScheme() === 'dark';
   const [dados, setDados] = useState<PokemonItemAPI[]>([]);
   const [refreshing, setRefreshing] = useState(true);
@@ -126,29 +110,133 @@ function App(): JSX.Element {
 
   const PokemonItem = (props: PokemonItemAPI) => {
     return (
-      <View style={styles.itemContainer}>
+      <Pressable style={styles.itemContainer} onPress={() => props.profile()}>
         <Text style={styles.header}>{props.name}</Text>
-        <Text style={styles.item} numberOfLines={1}>{props.url}</Text>
+        <Text style={styles.item} numberOfLines={1}>
+          {props.url}
+        </Text>
+      </Pressable>
+    );
+  };
+
+  const PokemonProfileScreen = ({
+    navigation,
+    route,
+  }: {
+    navigation: any;
+    route: any;
+  }) => {
+    const [profile, setProfile] = useState<PokemonProfile>();
+
+    const newProfileFromResponse = (
+      response: AxiosResponse,
+    ): PokemonProfile => {
+      const data = response.data;
+      const stats = response.data.stats.map(
+        (stat: any): Stat => ({
+          base_value: stat.base_stat,
+          name: stat.stat?.name,
+        }),
+      );
+      return {
+        name: data.name,
+        base_experience: data.base_experience,
+        height: data.height,
+        stats: stats,
+      };
+    };
+
+    useEffect(() => {
+      const pokemonUrl = route.params?.url;
+
+      axios
+        .get(pokemonUrl)
+        .then(newProfileFromResponse)
+        .then(setProfile)
+        .catch(console.log);
+    }, []);
+
+    return (
+      <View style={profileStyles.profileContainer}>
+        <Text style={profileStyles.profileHeader}>
+          {profile?.name.toLocaleUpperCase()}
+        </Text>
+        <Separator />
+        <View style={profileStyles.attributes}>
+          <View style={profileStyles.attributeContainer}>
+            <Text style={profileStyles.attributeTitle}>Base Experience</Text>
+            <Text style={profileStyles.attributeValue}>
+              {profile?.base_experience}
+            </Text>
+          </View>
+          <View style={profileStyles.attributeContainer}>
+            <Text style={profileStyles.attributeTitle}>Height</Text>
+            <Text style={profileStyles.attributeValue}>
+              {profile?.base_experience}
+            </Text>
+          </View>
+        </View>
+
+        <FlatList
+          data={profile?.stats}
+          renderItem={({item}) => (
+            <View>
+              <View style={profileStyles.statItem}>
+                <Text>{item.name}</Text>
+                <Text>{item.base_value}</Text>
+              </View>
+              <Separator />
+            </View>
+          )}
+        />
       </View>
     );
   };
+  const HomeScreen = ({navigation}: {navigation: any}) => {
+    return (
+      <SafeAreaView style={backgroundStyle}>
+        <FlatList
+          style={styles.contentList}
+          refreshing={refreshing}
+          data={dados}
+          numColumns={2}
+          onEndReached={loadMorePokemons}
+          keyExtractor={(item, index) => `pokemon_window_${index}`}
+          ListFooterComponent={FooterComponent}
+          renderItem={({item}) => (
+            <PokemonItem
+              name={item.name}
+              url={item.url}
+              profile={() =>
+                navigation.navigate('PokemonProfile', {url: item.url})
+              }
+            />
+          )}
+        />
+      </SafeAreaView>
+    );
+  };
+
   return (
-    <SafeAreaView style={backgroundStyle}>
-      <FlatList
-      style={styles.contentList}
-        refreshing={refreshing}
-        data={dados}
-        numColumns={2}
-        onEndReached={loadMorePokemons}
-        keyExtractor={(item, index) => `pokemon_window_${index}`}
-        ListFooterComponent={FooterComponent}
-        renderItem={({item}) => <PokemonItem name={item.name} url={item.url} />}
-      />
-    </SafeAreaView>
+    <NavigationContainer>
+      <Stack.Navigator>
+        <Stack.Screen
+          name="Home"
+          component={HomeScreen}
+          options={{title: 'Welcome'}}
+        />
+        <Stack.Screen name="PokemonProfile" component={PokemonProfileScreen} />
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
 
 const styles = StyleSheet.create({
+  divider: {
+    borderBottomColor: 'black',
+    margin: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
   sectionContainer: {
     marginTop: 32,
     paddingHorizontal: 24,
@@ -169,7 +257,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#c1a',
     color: '#FFF',
     fontSize: 16,
-    flex: 1
+    flex: 1,
   },
   header: {
     backgroundColor: '#BBB',
@@ -179,16 +267,53 @@ const styles = StyleSheet.create({
     textShadowRadius: 10,
     fontWeight: 'bold',
     fontSize: 32,
-    flex: 1
+    flex: 1,
   },
   itemContainer: {
     flex: 1,
     borderWidth: 2,
-    flexDirection: 'column'
+    flexDirection: 'column',
   },
   contentList: {
-    flexDirection: 'column'
-  }
+    flexDirection: 'column',
+  },
 });
-
+const profileStyles = StyleSheet.create({
+  profileContainer: {
+    flexDirection: 'column',
+  },
+  profileHeader: {
+    fontSize: 46,
+    fontWeight: 'bold',
+    fontFamily: 'serif',
+    textAlign: 'center',
+  },
+  attributes: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  attributeContainer: {
+    flexDirection: 'column',
+    margin: 12,
+    padding: 6,
+  },
+  attributeTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  attributeValue: {
+    fontSize: 18,
+    textShadowColor: 'black',
+    textShadowOffset: {
+      width: 4,
+      height: 4,
+    },
+    textShadowRadius: 6,
+    fontWeight: 'bold',
+  },
+  statItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+});
 export default App;
